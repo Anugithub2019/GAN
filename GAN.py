@@ -52,8 +52,8 @@ def define_discriminator(in_shape = (32,32,3)):
 		model.add(LeakyReLU(alpha=0.2))
 
 		#classifier
-		model.add(Flatten())
 		model.add(Dropout(0.4))
+		model.add(Flatten())
 		model.add(Dense(1, activation = 'sigmoid'))
 
 		#compile model
@@ -117,7 +117,7 @@ def define_generator(latent_dim):
 	 n_nodes = 256 * 4 *4
 	 model.add(Dense(n_nodes, input_dim = latent_dim))
 	 model.add(LeakyReLU(alpha=0.2))
-	 model.add(Reshape((4,4,256)))
+	 model.add(Reshape((4,4,256))) # 4x4 image and depth is 256
 	 #upsample to 8x8
 	 model.add(Conv2DTranspose(128,(4,4), strides = (2,2), padding='same'))
 	 model.add(LeakyReLU(alpha =0.2))
@@ -168,6 +168,9 @@ def generate_latent_points(latent_dim, n_samples):
 #pyplot.show()
 
 def define_gan(g_model, d_model):
+	#make weights in the discriminator not trainable
+	#very important, else will modify discriminator weights as well (i.e. get good generation score by crippling discriminator)!!!
+	d_model.trainable = False
 	model = Sequential()
 	# add generator
 	model.add(g_model)
