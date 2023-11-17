@@ -30,7 +30,9 @@ from keras.layers import LeakyReLU
 from keras.layers import Conv2DTranspose
 from keras.layers import Reshape
 from keras.utils import plot_model
+from dadapy import Data
 import numpy as np
+#import gudhi as gd
 
 # define the standalone discrimantor model
 def define_discriminator(in_shape = (32,32,3)):
@@ -209,7 +211,53 @@ def train(g_model, d_model, gan_model, dataset, latent_dim, n_epochs=200, n_batc
 		#evaluate the model perfomance, sometime
 		if (i+1) % 10 == 0:
 		#if i % 10 == 0:
-				summarize_performance(i,g_model, d_model, dataset, latent_dim)
+			summarize_performance(i,g_model, d_model, dataset, latent_dim)
+			intr_dim(i,g_model, d_model, dataset, latent_dim)
+
+
+# write headers for intrinsic_dim file
+with open("intrinsic_dim.csv", "w") as file:
+	file.write(f"epoch,intrinsic_dim,err1\n")
+
+def intr_dim(epoch, g_model, d_model, dataset, latent_dim, n_samples=300):
+	x_fake, _ = generate_fake_samples(g_model, latent_dim, n_samples)
+
+	# unravel each x_fake tensor into a flat vector (datapoint) so that we have a set of n_samples datapoints
+	x_fake_flat = x_fake.reshape(n_samples, -1)  # Reshaping to (n_samples, 3072)
+
+	# calculate intrinsic dimensions of x_fake
+	intrinsic_dim,err1,_ = calculate_intrinsic_dimension(x_fake_flat)
+	# Note: You'll need to define `calculate_intrinsic_dimension` based on your chosen method
+
+	# save result to file (or print it out), include the epoch in the file name
+	filename = f"intrinsic_dim_epoch_{epoch}.txt"
+	with open(filename, "w") as file:
+		file.write(f"Intrinsic Dimension at epoch {epoch}: {intrinsic_dim} Standard error: {err1}\n")
+
+	# save result to file (or print it out), include the epoch in the file name
+	with open("intrinsic_dim.csv", "a") as file:
+		file.write(f"{epoch},{intrinsic_dim},{err1}\n")
+
+
+	# Alternatively, just print it out
+	print(f"Intrinsic Dimension at epoch {epoch}: {intrinsic_dim} Standard error: {err1}\n")
+
+
+def calculate_intrinsic_dimension(data):
+    """
+    Estimate the intrinsic dimension of a dataset using the 2NN method from GUDHI.
+
+    Parameters:
+    data (numpy.ndarray): The dataset, where each row is a datapoint.
+
+    Returns:
+    float: The estimated intrinsic dimension.
+    """
+    
+
+    # Fit the model on the data and estimate the dimension
+    ID1, err1, scale1 = Data(data).compute_id_2NN(decimation = 1)
+    return ID1, err1, scale1
 
 # evaluate the discriminator, plot generted images, save generator model
 def summarize_performance(epoch, g_model, d_model, dataset, latent_dim, n_samples=150):
@@ -238,24 +286,24 @@ def summarize_performance(epoch, g_model, d_model, dataset, latent_dim, n_sample
 
 # ChatGPT generated code to save images with discriminator probability of real underneath
 def save_plot_with_probs(examples, model, filename, n=7):
-    # Scale from [-1,1] to [0,1]
-    examples = (examples + 1) / 2.0
+	# Scale from [-1,1] to [0,1]
+	examples = (examples + 1) / 2.0
 
-    for i in range(n * n):
-        # Define subplot
-        pyplot.subplot(n, n, 1 + i)
-        # Turn off axis
-        pyplot.axis('off')
-        # Plot raw pixel data
-        pyplot.imshow(examples[i])
-        
-        # Get the probability from the model
-        probability = model.predict(np.expand_dims(examples[i], axis=0))[0][0]
-        pyplot.text(2, 2, f"{probability:.4f}", color='white', fontsize=8, bbox=dict(facecolor='black', alpha=0.7))
-    
-    # Save plot to file
-    pyplot.savefig(filename)
-    pyplot.close()
+	for i in range(n * n):
+		# Define subplot
+		pyplot.subplot(n, n, 1 + i)
+		# Turn off axis
+		pyplot.axis('off')
+		# Plot raw pixel data
+		pyplot.imshow(examples[i])
+		
+		# Get the probability from the model
+		probability = model.predict(np.expand_dims(examples[i], axis=0))[0][0]
+		pyplot.text(2, 2, f"{probability:.4f}", color='white', fontsize=8, bbox=dict(facecolor='black', alpha=0.7))
+	
+	# Save plot to file
+	pyplot.savefig(filename)
+	pyplot.close()
 
 
 
