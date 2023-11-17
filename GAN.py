@@ -87,13 +87,17 @@ def load_real_samples():
 #X.shape
 
 # select real samples
-def generate_real_samples(dataset, n_samples):
-				# choose random instances
-				ix = np.random.randint(0, dataset.shape[0], n_samples)
-				X = dataset[ix]
-				# generate 'real' class labels (1)
-				y = np.ones((n_samples, 1))
-				return X,y
+def generate_real_samples(dataset, n_samples, replace=True):
+	if replace:
+		# choose random instances (with replacement)
+		ix = np.random.randint(0, dataset.shape[0], n_samples)
+	else:
+		# without replacement (must be less than total number of real images in dataset)
+		ix = np.random.choice(dataset.shape[0], n_samples, replace=False)
+	X = dataset[ix]
+	# generate 'real' class labels (1)
+	y = np.ones((n_samples, 1))
+	return X,y
 
 # generate fake samples
 def generate_fake_samples(g_model,latent_dim ,n_samples):
@@ -188,6 +192,9 @@ def define_gan(g_model, d_model):
 def train(g_model, d_model, gan_model, dataset, latent_dim, n_epochs=200, n_batch=128):
 	bat_per_epo = int(dataset.shape[0]/n_batch)
 	half_batch = int(n_batch/2)
+
+	intr_dim_real(dataset)
+
 	# manually enumerate epochs
 	for i in range(n_epochs):
 		#enumerate batches over the training set
@@ -219,7 +226,25 @@ def train(g_model, d_model, gan_model, dataset, latent_dim, n_epochs=200, n_batc
 with open("intrinsic_dim.csv", "w") as file:
 	file.write(f"epoch,intrinsic_dim,err1\n")
 
-def intr_dim(epoch, g_model, d_model, dataset, latent_dim, n_samples=300):
+def intr_dim_real(dataset, n_samples=1000):
+	x_real, _ = generate_real_samples(dataset, n_samples, replace=False)
+
+	# unravel each x_fake tensor into a flat vector (datapoint) so that we have a set of n_samples datapoints
+	x_fake_flat = x_real.reshape(n_samples, -1)  # Reshaping to (n_samples, 3072)
+
+	# calculate intrinsic dimensions of x_fake
+	intrinsic_dim,err1,_ = calculate_intrinsic_dimension(x_fake_flat)
+	# Note: You'll need to define `calculate_intrinsic_dimension` based on your chosen method
+
+	# save result to file (or print it out), include the epoch in the file name
+	filename = f"intrinsic_dim_real.txt"
+	with open(filename, "w") as file:
+		file.write(f"Intrinsic Dimension of real data: {intrinsic_dim} Standard error: {err1}\n")
+
+	# Alternatively, just print it out
+	print(f"Intrinsic Dimension of real data: {intrinsic_dim} Standard error: {err1}\n")
+
+def intr_dim(epoch, g_model, d_model, dataset, latent_dim, n_samples=1000):
 	x_fake, _ = generate_fake_samples(g_model, latent_dim, n_samples)
 
 	# unravel each x_fake tensor into a flat vector (datapoint) so that we have a set of n_samples datapoints
