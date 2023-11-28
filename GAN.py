@@ -32,6 +32,10 @@ from keras.layers import Reshape
 from keras.utils import plot_model
 from dadapy import Data
 import numpy as np
+from gtda.homology import VietorisRipsPersistence
+from gtda.diagrams import PersistenceEntropy
+from gtda.pipeline import make_pipeline
+
 #import gudhi as gd
 
 # define the standalone discrimantor model
@@ -219,8 +223,7 @@ def train(g_model, d_model, gan_model, dataset, latent_dim, n_epochs=200, n_batc
 		if (i+1) % 10 == 0:
 		#if i % 10 == 0:
 			summarize_performance(i,g_model, d_model, dataset, latent_dim)
-			intr_dim(i,g_model, d_model, dataset, latent_dim)
-
+			intr_dim_and_pers_dia(i,g_model, d_model, dataset, latent_dim)
 
 # write headers for intrinsic_dim file
 with open("intrinsic_dim.csv", "w") as file:
@@ -230,10 +233,10 @@ def intr_dim_real(dataset, n_samples=1000):
 	x_real, _ = generate_real_samples(dataset, n_samples, replace=False)
 
 	# unravel each x_fake tensor into a flat vector (datapoint) so that we have a set of n_samples datapoints
-	x_fake_flat = x_real.reshape(n_samples, -1)  # Reshaping to (n_samples, 3072)
+	x_real_flat = x_real.reshape(n_samples, -1)  # Reshaping to (n_samples, 3072)
 
 	# calculate intrinsic dimensions of x_fake
-	intrinsic_dim,err1,_ = calculate_intrinsic_dimension(x_fake_flat)
+	intrinsic_dim,err1,_ = calculate_intrinsic_dimension(x_real_flat)
 	# Note: You'll need to define `calculate_intrinsic_dimension` based on your chosen method
 
 	# save result to file (or print it out), include the epoch in the file name
@@ -244,8 +247,31 @@ def intr_dim_real(dataset, n_samples=1000):
 	# Alternatively, just print it out
 	print(f"Intrinsic Dimension of real data: {intrinsic_dim} Standard error: {err1}\n")
 
-def intr_dim(epoch, g_model, d_model, dataset, latent_dim, n_samples=1000):
+		# == persistence diagram ===
+	
+	VR_persistence = VietorisRipsPersistence(homology_dimensions=[0, 1, 2], n_jobs = -1)
+	
+   
+	x_real_flat_reshaped = x_real_flat.reshape(1,x_real_flat.shape[0],x_real_flat.shape[1])
+
+	
+	
+	Xt = VR_persistence.fit_transform(x_real_flat_reshaped)
+
+	# Save or process the persistence diagrams
+	np.save(f"Xt_real.npy", Xt)
+	diagram_plt = VR_persistence.plot(Xt, sample=0)
+	diagram_plt.write_image(f"pers_diagram_real.png")
+
+	pipeline = make_pipeline(VR_persistence, PersistenceEntropy())
+	# Fit and transform
+	entropy = pipeline.fit_transform(x_real_flat.reshape(-1, 1, x_real_flat.shape[-1]))
+	np.save(f"entropy_real.npy", Xt)
+
+def intr_dim_and_pers_dia(epoch, g_model, d_model, dataset, latent_dim, n_samples=1000):
 	x_fake, _ = generate_fake_samples(g_model, latent_dim, n_samples)
+
+	# == intrinsic dims ==
 
 	# unravel each x_fake tensor into a flat vector (datapoint) so that we have a set of n_samples datapoints
 	x_fake_flat = x_fake.reshape(n_samples, -1)  # Reshaping to (n_samples, 3072)
@@ -263,26 +289,52 @@ def intr_dim(epoch, g_model, d_model, dataset, latent_dim, n_samples=1000):
 	with open("intrinsic_dim.csv", "a") as file:
 		file.write(f"{epoch},{intrinsic_dim},{err1}\n")
 
-
 	# Alternatively, just print it out
 	print(f"Intrinsic Dimension at epoch {epoch}: {intrinsic_dim} Standard error: {err1}\n")
 
+	# == persistence diagram ===
+	
+	VR_persistence = VietorisRipsPersistence(homology_dimensions=[0, 1, 2], n_jobs = -1)
+	
+   
+	x_fake_flat_reshaped = x_fake_flat.reshape(1,x_fake_flat.shape[0],x_fake_flat.shape[1])
+
+	
+	
+	Xt = VR_persistence.fit_transform(x_fake_flat_reshaped)
+
+	# Save or process the persistence diagrams
+	np.save(f"Xt_epoch_{epoch}.npy", Xt)
+	diagram_plt = VR_persistence.plot(Xt, sample=0)
+	diagram_plt.write_image(f"pers_diagram_{epoch}.png")
+
+	#pipeline = make_pipeline(VR_persistence, PersistenceEntropy())
+	# Fit and transform
+	#entropy = pipeline.fit_transform(x_fake_flat.reshape(-1, 1, x_fake_flat.shape[-1]))
+	#np.save(f"entropy_epoch_{epoch}.npy", Xt)
+
+
+
+	# Optionally, print or log information about the persistence diagrams
+	#print(f"Persistence diagrams at epoch {epoch} saved.")
+
+
 
 def calculate_intrinsic_dimension(data):
-    """
-    Estimate the intrinsic dimension of a dataset using the 2NN method from GUDHI.
+	"""
+	Estimate the intrinsic dimension of a dataset using the 2NN method from GUDHI.
 
-    Parameters:
-    data (numpy.ndarray): The dataset, where each row is a datapoint.
+	Parameters:
+	data (numpy.ndarray): The dataset, where each row is a datapoint.
 
-    Returns:
-    float: The estimated intrinsic dimension.
-    """
-    
+	Returns:
+	float: The estimated intrinsic dimension.
+	"""
+	
 
-    # Fit the model on the data and estimate the dimension
-    ID1, err1, scale1 = Data(data).compute_id_2NN(decimation = 1)
-    return ID1, err1, scale1
+	# Fit the model on the data and estimate the dimension
+	ID1, err1, scale1 = Data(data).compute_id_2NN(decimation = 1)
+	return ID1, err1, scale1
 
 # evaluate the discriminator, plot generted images, save generator model
 def summarize_performance(epoch, g_model, d_model, dataset, latent_dim, n_samples=150):
@@ -365,4 +417,4 @@ gan_model.summary()
 dataset = load_real_samples()
 
 
-train(g_model, d_model, gan_model, dataset, latent_dim, n_epochs=200, n_batch=128)
+train(g_model, d_model, gan_model, dataset, latent_dim, n_epochs= 500, n_batch=128)
