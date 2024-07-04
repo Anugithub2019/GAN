@@ -35,6 +35,10 @@ import numpy as np
 from gtda.homology import VietorisRipsPersistence
 from gtda.diagrams import PersistenceEntropy
 from gtda.pipeline import make_pipeline
+import os
+from matplotlib import pyplot
+from keras.preprocessing.image import img_to_array, array_to_img
+
 
 #import gudhi as gd
 
@@ -225,6 +229,7 @@ def train(g_model, d_model, gan_model, dataset, latent_dim, n_epochs=200, n_batc
 			summarize_performance(i,g_model, d_model, dataset, latent_dim)
 			intr_dim_and_pers_dia(i,g_model, d_model, dataset, latent_dim)
 
+
 # write headers for intrinsic_dim file
 with open("intrinsic_dim.csv", "w") as file:
 	file.write(f"epoch,intrinsic_dim,err1\n")
@@ -353,6 +358,8 @@ def summarize_performance(epoch, g_model, d_model, dataset, latent_dim, n_sample
 
 	save_plot_with_probs(X_real, d_model, 'real_images_%03d.png' %(epoch +1))
 	save_plot_with_probs(x_fake, d_model, 'fake_images_%03d.png' %(epoch +1))
+	save_images_for_epoch(x_fake,epoch, n_samples=150, n=10)
+
 
 	#save plot
 	save_plot(x_fake, epoch)
@@ -382,6 +389,27 @@ def save_plot_with_probs(examples, model, filename, n=7):
 	pyplot.savefig(filename)
 	pyplot.close()
 
+def save_images_for_epoch(examples, epoch, n_samples=150, n=10):
+	
+# Create a directory for the current epoch
+
+	dir_path = f'epoch_{epoch}'
+	if not os.path.exists(dir_path):
+		os.makedirs(dir_path)
+	
+	#   # Scale from [-1,1] to [0,1]
+	# 	X = (X + 1) / 2.0
+	examples = (examples + 1) / 2.0
+	# 	# Save each image to the directory
+	for i in range(n_samples):
+		pyplot.imshow(examples[i])
+		pyplot.axis('off')
+	# Save the pyplot figure to a file
+		filename = f'{dir_path}/image_{i+1:03d}.png'
+		pyplot.savefig(filename)
+		pyplot.close()  # Close the plot to free up memory
+
+	print(f'Saved {n_samples} images to directory {dir_path}')
 
 
 #create and save a plot of generated images
@@ -418,3 +446,6 @@ dataset = load_real_samples()
 
 
 train(g_model, d_model, gan_model, dataset, latent_dim, n_epochs= 500, n_batch=128)
+
+
+
