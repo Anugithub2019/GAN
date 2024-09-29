@@ -30,7 +30,17 @@ from keras.layers import LeakyReLU
 from keras.layers import Conv2DTranspose
 from keras.layers import Reshape
 from keras.utils import plot_model
+from dadapy import Data
 import numpy as np
+from gtda.homology import VietorisRipsPersistence
+from gtda.diagrams import PersistenceEntropy
+from gtda.pipeline import make_pipeline
+import os
+from matplotlib import pyplot
+from keras.preprocessing.image import img_to_array, array_to_img
+
+
+#import gudhi as gd
 
 # define the standalone discrimantor model
 def define_discriminator(in_shape = (32,32,3)):
@@ -85,13 +95,17 @@ def load_real_samples():
 #X.shape
 
 # select real samples
-def generate_real_samples(dataset, n_samples):
-				# choose random instances
-				ix = np.random.randint(0, dataset.shape[0], n_samples)
-				X = dataset[ix]
-				# generate 'real' class labels (1)
-				y = np.ones((n_samples, 1))
-				return X,y
+def generate_real_samples(dataset, n_samples, replace=True):
+	if replace:
+		# choose random instances (with replacement)
+		ix = np.random.randint(0, dataset.shape[0], n_samples)
+	else:
+		# without replacement (must be less than total number of real images in dataset)
+		ix = np.random.choice(dataset.shape[0], n_samples, replace=False)
+	X = dataset[ix]
+	# generate 'real' class labels (1)
+	y = np.ones((n_samples, 1))
+	return X,y
 
 # generate fake samples
 def generate_fake_samples(g_model,latent_dim ,n_samples):
@@ -186,6 +200,9 @@ def define_gan(g_model, d_model):
 def train(g_model, d_model, gan_model, dataset, latent_dim, n_epochs=200, n_batch=128):
 	bat_per_epo = int(dataset.shape[0]/n_batch)
 	half_batch = int(n_batch/2)
+
+	intr_dim_real(dataset)
+
 	# manually enumerate epochs
 	for i in range(n_epochs):
 		#enumerate batches over the training set
@@ -209,7 +226,120 @@ def train(g_model, d_model, gan_model, dataset, latent_dim, n_epochs=200, n_batc
 		#evaluate the model perfomance, sometime
 		if (i+1) % 10 == 0:
 		#if i % 10 == 0:
-				summarize_performance(i,g_model, d_model, dataset, latent_dim)
+			summarize_performance(i,g_model, d_model, dataset, latent_dim)
+			intr_dim_and_pers_dia(i,g_model, d_model, dataset, latent_dim)
+
+
+# write headers for intrinsic_dim file
+with open("intrinsic_dim.csv", "w") as file:
+	file.write(f"epoch,intrinsic_dim,err1\n")
+
+def intr_dim_real(dataset, n_samples=1000):
+	x_real, _ = generate_real_samples(dataset, n_samples, replace=False)
+
+	# unravel each x_fake tensor into a flat vector (datapoint) so that we have a set of n_samples datapoints
+	x_real_flat = x_real.reshape(n_samples, -1)  # Reshaping to (n_samples, 3072)
+
+	# calculate intrinsic dimensions of x_fake
+	intrinsic_dim,err1,_ = calculate_intrinsic_dimension(x_real_flat)
+	# Note: You'll need to define `calculate_intrinsic_dimension` based on your chosen method
+
+	# save result to file (or print it out), include the epoch in the file name
+	filename = f"intrinsic_dim_real.txt"
+	with open(filename, "w") as file:
+		file.write(f"Intrinsic Dimension of real data: {intrinsic_dim} Standard error: {err1}\n")
+
+	# Alternatively, just print it out
+	print(f"Intrinsic Dimension of real data: {intrinsic_dim} Standard error: {err1}\n")
+
+		# == persistence diagram ===
+	
+	VR_persistence = VietorisRipsPersistence(homology_dimensions=[0, 1, 2], n_jobs = -1)
+	
+   
+	x_real_flat_reshaped = x_real_flat.reshape(1,x_real_flat.shape[0],x_real_flat.shape[1])
+
+	
+	
+	Xt = VR_persistence.fit_transform(x_real_flat_reshaped)
+
+	# Save or process the persistence diagrams
+	np.save(f"Xt_real.npy", Xt)
+	diagram_plt = VR_persistence.plot(Xt, sample=0)
+	diagram_plt.write_image(f"pers_diagram_real.png")
+
+	pipeline = make_pipeline(VR_persistence, PersistenceEntropy())
+	# Fit and transform
+	entropy = pipeline.fit_transform(x_real_flat.reshape(-1, 1, x_real_flat.shape[-1]))
+	np.save(f"entropy_real.npy", Xt)
+
+def intr_dim_and_pers_dia(epoch, g_model, d_model, dataset, latent_dim, n_samples=1000):
+	x_fake, _ = generate_fake_samples(g_model, latent_dim, n_samples)
+
+	# == intrinsic dims ==
+
+	# unravel each x_fake tensor into a flat vector (datapoint) so that we have a set of n_samples datapoints
+	x_fake_flat = x_fake.reshape(n_samples, -1)  # Reshaping to (n_samples, 3072)
+
+	# calculate intrinsic dimensions of x_fake
+	intrinsic_dim,err1,_ = calculate_intrinsic_dimension(x_fake_flat)
+	# Note: You'll need to define `calculate_intrinsic_dimension` based on your chosen method
+
+	# save result to file (or print it out), include the epoch in the file name
+	filename = f"intrinsic_dim_epoch_{epoch}.txt"
+	with open(filename, "w") as file:
+		file.write(f"Intrinsic Dimension at epoch {epoch}: {intrinsic_dim} Standard error: {err1}\n")
+
+	# save result to file (or print it out), include the epoch in the file name
+	with open("intrinsic_dim.csv", "a") as file:
+		file.write(f"{epoch},{intrinsic_dim},{err1}\n")
+
+	# Alternatively, just print it out
+	print(f"Intrinsic Dimension at epoch {epoch}: {intrinsic_dim} Standard error: {err1}\n")
+
+	# == persistence diagram ===
+	
+	VR_persistence = VietorisRipsPersistence(homology_dimensions=[0, 1, 2], n_jobs = -1)
+	
+   
+	x_fake_flat_reshaped = x_fake_flat.reshape(1,x_fake_flat.shape[0],x_fake_flat.shape[1])
+
+	
+	
+	Xt = VR_persistence.fit_transform(x_fake_flat_reshaped)
+
+	# Save or process the persistence diagrams
+	np.save(f"Xt_epoch_{epoch}.npy", Xt)
+	diagram_plt = VR_persistence.plot(Xt, sample=0)
+	diagram_plt.write_image(f"pers_diagram_{epoch}.png")
+
+	#pipeline = make_pipeline(VR_persistence, PersistenceEntropy())
+	# Fit and transform
+	#entropy = pipeline.fit_transform(x_fake_flat.reshape(-1, 1, x_fake_flat.shape[-1]))
+	#np.save(f"entropy_epoch_{epoch}.npy", Xt)
+
+
+
+	# Optionally, print or log information about the persistence diagrams
+	#print(f"Persistence diagrams at epoch {epoch} saved.")
+
+
+
+def calculate_intrinsic_dimension(data):
+	"""
+	Estimate the intrinsic dimension of a dataset using the 2NN method from GUDHI.
+
+	Parameters:
+	data (numpy.ndarray): The dataset, where each row is a datapoint.
+
+	Returns:
+	float: The estimated intrinsic dimension.
+	"""
+	
+
+	# Fit the model on the data and estimate the dimension
+	ID1, err1, scale1 = Data(data).compute_id_2NN(decimation = 1)
+	return ID1, err1, scale1
 
 # evaluate the discriminator, plot generted images, save generator model
 def summarize_performance(epoch, g_model, d_model, dataset, latent_dim, n_samples=150):
@@ -228,6 +358,8 @@ def summarize_performance(epoch, g_model, d_model, dataset, latent_dim, n_sample
 
 	save_plot_with_probs(X_real, d_model, 'real_images_%03d.png' %(epoch +1))
 	save_plot_with_probs(x_fake, d_model, 'fake_images_%03d.png' %(epoch +1))
+	save_images_for_epoch(x_fake,epoch, n_samples=150, n=10)
+
 
 	#save plot
 	save_plot(x_fake, epoch)
@@ -238,25 +370,46 @@ def summarize_performance(epoch, g_model, d_model, dataset, latent_dim, n_sample
 
 # ChatGPT generated code to save images with discriminator probability of real underneath
 def save_plot_with_probs(examples, model, filename, n=7):
-    # Scale from [-1,1] to [0,1]
-    examples = (examples + 1) / 2.0
+	# Scale from [-1,1] to [0,1]
+	examples = (examples + 1) / 2.0
 
-    for i in range(n * n):
-        # Define subplot
-        pyplot.subplot(n, n, 1 + i)
-        # Turn off axis
-        pyplot.axis('off')
-        # Plot raw pixel data
-        pyplot.imshow(examples[i])
-        
-        # Get the probability from the model
-        probability = model.predict(np.expand_dims(examples[i], axis=0))[0][0]
-        pyplot.text(2, 2, f"{probability:.4f}", color='white', fontsize=8, bbox=dict(facecolor='black', alpha=0.7))
-    
-    # Save plot to file
-    pyplot.savefig(filename)
-    pyplot.close()
+	for i in range(n * n):
+		# Define subplot
+		pyplot.subplot(n, n, 1 + i)
+		# Turn off axis
+		pyplot.axis('off')
+		# Plot raw pixel data
+		pyplot.imshow(examples[i])
+		
+		# Get the probability from the model
+		probability = model.predict(np.expand_dims(examples[i], axis=0))[0][0]
+		pyplot.text(2, 2, f"{probability:.4f}", color='white', fontsize=8, bbox=dict(facecolor='black', alpha=0.7))
+	
+	# Save plot to file
+	pyplot.savefig(filename)
+	pyplot.close()
 
+def save_images_for_epoch(examples, epoch, n_samples=150, n=10):
+	
+# Create a directory for the current epoch
+
+	dir_path = f'epoch_{epoch}'
+	if not os.path.exists(dir_path):
+		os.makedirs(dir_path)
+	
+	#   # Scale from [-1,1] to [0,1]
+	# 	X = (X + 1) / 2.0
+	examples = (examples + 1) / 2.0
+	# 	# Save each image to the directory
+	for i in range(n_samples):
+		pyplot.imshow(examples[i])
+		pyplot.axis('off')
+	# Save the pyplot figure to a file
+		filename = f'{dir_path}/image_{i+1:03d}.png'
+		pyplot.savefig(filename)
+		pyplot.close()  # Close the plot to free up memory
+
+	print(f'Saved {n_samples} images to directory {dir_path}')
 
 
 #create and save a plot of generated images
@@ -292,4 +445,7 @@ gan_model.summary()
 dataset = load_real_samples()
 
 
-train(g_model, d_model, gan_model, dataset, latent_dim, n_epochs=200, n_batch=128)
+train(g_model, d_model, gan_model, dataset, latent_dim, n_epochs= 500, n_batch=128)
+
+
+
